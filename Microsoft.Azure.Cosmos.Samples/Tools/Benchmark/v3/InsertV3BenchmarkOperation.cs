@@ -26,7 +26,6 @@ namespace CosmosBenchmark
 
         private static readonly int tenantCount = 5000;
 
-
         static InsertV3BenchmarkOperation()
         {
             tenantIds = new string[tenantCount];

@@ -53,6 +53,7 @@ namespace CosmosBenchmark
             this.sampleJObject = JsonHelper.Deserialize<Dictionary<string, object>>(sampleJson);
         }
 
+        static int cnt = 0;
         public async Task<OperationResult> ExecuteOnceAsync()
         {
 
@@ -81,15 +82,27 @@ namespace CosmosBenchmark
                     string id = root.id;
                     string tenantId = root.tenantId;
 
-                    using (ResponseMessage deleteResponse = await this.container.DeleteItemStreamAsync(id, new PartitionKey(tenantId)))
+                    try
                     {
-                        if (!deleteResponse.IsSuccessStatusCode)
+                        using (ResponseMessage deleteResponse = await this.container.DeleteItemStreamAsync(id, new PartitionKey(tenantId)))
                         {
-                            //Handle and log exception
-                            throw new Exception("fail to delete");
-                        }
+                            if (!deleteResponse.IsSuccessStatusCode)
+                            {
+                                //Handle and log exception
+                                throw new Exception("fail to delete");
+                            }
 
-                        deleteRu = deleteResponse.Headers.RequestCharge;
+                            deleteRu = deleteResponse.Headers.RequestCharge;
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        if (cnt++ < 2)
+                        {
+                            Console.WriteLine(e.Message);
+                        }
+                        throw e;
+
                     }
                 }
 

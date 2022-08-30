@@ -89,7 +89,7 @@ namespace CosmosBenchmark
                             if (!deleteResponse.IsSuccessStatusCode)
                             {
                                 //Handle and log exception
-                                throw new Exception("fail to delete");
+                                throw new Exception($"fail to delete {deleteResponse.GetHashCode()},{id}, {tenantId}");
                             }
 
                             deleteRu = deleteResponse.Headers.RequestCharge;

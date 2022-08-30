@@ -25,7 +25,7 @@ namespace CosmosBenchmark
         private readonly string databaseName;
         private readonly string containerName;
 
-        private static readonly int tenantCount = 1;
+        private static readonly int tenantCount = 5000;
 
         static InsertThenDeleteV3BenchmarkOperation()
         {
@@ -33,7 +33,7 @@ namespace CosmosBenchmark
 
             for (int i = 0; i < tenantIds.Length; i++)
             {
-                string tenantId = new string('x', 36 - (i.ToString().Length + 1)) + "-" + i.ToString();
+                string tenantId = i.ToString() + "-" + new string('x', 36 - (i.ToString().Length + 1));
                 tenantIds[i] = tenantId;
             }
         }
@@ -53,27 +53,30 @@ namespace CosmosBenchmark
             this.sampleJObject = JsonHelper.Deserialize<Dictionary<string, object>>(sampleJson);
         }
 
-        static int cnt = 0;
         public async Task<OperationResult> ExecuteOnceAsync()
         {
-
-
             using (MemoryStream input = JsonHelper.ToStream(this.sampleJObject))
             {
 
-                ResponseMessage itemResponse = await this.container.CreateItemStreamAsync(
+                ResponseMessage createResponse = await this.container.CreateItemStreamAsync(
                         input,
                         new PartitionKey(this.sampleJObject[this.partitionKeyPath].ToString()));
 
-                double ruCharges = itemResponse.Headers.RequestCharge;
-                double deleteRu = 1000000;
+                if (!createResponse.IsSuccessStatusCode)
+                {
+                    //Handle and log exception
+                    throw new Exception($"fail to create item. status code: {createResponse.StatusCode}");
+                }
+
+                double createRu = createResponse.Headers.RequestCharge;
+                double deleteRu = 999999999; // initialize it with a big number, so if there's anything wrong, we'll spot it easily.
 
                 System.Buffers.ArrayPool<byte>.Shared.Return(input.GetBuffer());
 
 
-                itemResponse.Content.Seek(0, SeekOrigin.Begin);
+                createResponse.Content.Seek(0, SeekOrigin.Begin);
 
-                using (StreamReader sr = new StreamReader(itemResponse.Content))
+                using (StreamReader sr = new StreamReader(createResponse.Content))
                 using (JsonTextReader jtr = new JsonTextReader(sr))
                 {
                     JsonSerializer jsonSerializer = new JsonSerializer();
@@ -82,27 +85,16 @@ namespace CosmosBenchmark
                     string id = root.id;
                     string tenantId = root.tenantId;
 
-                    try
-                    {
-                        using (ResponseMessage deleteResponse = await this.container.DeleteItemStreamAsync(id, new PartitionKey(tenantId)))
-                        {
-                            if (!deleteResponse.IsSuccessStatusCode)
-                            {
-                                //Handle and log exception
-                                throw new Exception($"fail to delete {deleteResponse.GetHashCode()},{id}, {tenantId}");
-                            }
 
-                            deleteRu = deleteResponse.Headers.RequestCharge;
-                        }
-                    }
-                    catch (Exception e)
+                    using (ResponseMessage deleteResponse = await this.container.DeleteItemStreamAsync(id, new PartitionKey(tenantId)))
                     {
-                        if (cnt++ < 2)
+                        if (!deleteResponse.IsSuccessStatusCode)
                         {
-                            Console.WriteLine(e.Message);
+                            //Handle and log exception
+                            throw new Exception($"fail to delete item. status code: {deleteResponse.StatusCode} , {id}, {tenantId}");
                         }
-                        throw e;
 
+                        deleteRu = deleteResponse.Headers.RequestCharge;
                     }
                 }
 
@@ -110,9 +102,9 @@ namespace CosmosBenchmark
                 {
                     DatabseName = databaseName,
                     ContainerName = containerName,
-                    RuCharges = ruCharges + deleteRu,
-                    CosmosDiagnostics = itemResponse.Diagnostics,
-                    LazyDiagnostics = () => itemResponse.Diagnostics.ToString(),
+                    RuCharges = createRu + deleteRu,
+                    CosmosDiagnostics = createResponse.Diagnostics, // !!!!!!!!!!!!!! this is incorrect
+                    LazyDiagnostics = () => createResponse.Diagnostics.ToString(), // !!!!!!!!!!! this is incorrect
                 };
             }
         }

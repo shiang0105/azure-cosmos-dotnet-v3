@@ -14,7 +14,7 @@ namespace CosmosBenchmark
     using Newtonsoft.Json.Linq;
     using Newtonsoft.Json.Serialization;
 
-    internal class JohnV3BenchmarkOperation : IBenchmarkOperation
+    internal class JohnBulkDeleteV3BenchmarkOperation : IBenchmarkOperation
     {
         private readonly Container container;
         private readonly string partitionKeyPath;
@@ -27,7 +27,7 @@ namespace CosmosBenchmark
 
         private static readonly int tenantCount = 1;
 
-        static JohnV3BenchmarkOperation()
+        static JohnBulkDeleteV3BenchmarkOperation()
         {
             /*
              tenantIds = new string[tenantCount];
@@ -40,7 +40,7 @@ namespace CosmosBenchmark
 
              */
         }
-        public JohnV3BenchmarkOperation(
+        public JohnBulkDeleteV3BenchmarkOperation(
             CosmosClient cosmosClient,
             string dbName,
             string containerName,
@@ -55,15 +55,6 @@ namespace CosmosBenchmark
 
             this.sampleJObject = JsonHelper.Deserialize<Dictionary<string, object>>(sampleJson);
 
-            int id = -1;
-            lock (LOCK)
-            {
-                id = COUNTER;
-                COUNTER++;
-            }
-
-            tenantIds = new string[tenantCount];
-            tenantIds[0] = "you-should-be-deleted-" + id.ToString();
         }
 
         public static object LOCK = new object();
@@ -78,55 +69,8 @@ namespace CosmosBenchmark
         bool insertMode = true;
         public async Task<OperationResult> ExecuteOnceAsync()
         {
+            await Test();
 
-
-            Console.WriteLine(this.sampleJObject[this.partitionKeyPath].ToString());
-            for (int i = 0; i < 0; i++)
-            {
-
-                this.sampleJObject["id"] = Guid.NewGuid().ToString();
-
-
-                using (MemoryStream input = JsonHelper.ToStream(this.sampleJObject))
-                {
-
-                    ResponseMessage itemResponse = await this.container.CreateItemStreamAsync(
-                            input,
-                            new PartitionKey(this.sampleJObject[this.partitionKeyPath].ToString()));
-
-                    double ruCharges = itemResponse.Headers.RequestCharge;
-
-                    System.Buffers.ArrayPool<byte>.Shared.Return(input.GetBuffer());
-
-
-                    itemResponse.Content.Seek(0, SeekOrigin.Begin);
-
-                    using (StreamReader sr = new StreamReader(itemResponse.Content))
-                    using (JsonTextReader jtr = new JsonTextReader(sr))
-                    {
-                        JsonSerializer jsonSerializer = new JsonSerializer();
-                        dynamic root = jsonSerializer.Deserialize<dynamic>(jtr);
-
-                        string self = root._self;
-                        //Console.WriteLine(ruCharges + ": RU");
-                    }
-
-
-                    /* return new OperationResult()
-                     {
-                         DatabseName = databaseName,
-                         ContainerName = containerName,
-                         RuCharges = ruCharges,
-                         CosmosDiagnostics = itemResponse.Diagnostics,
-                         LazyDiagnostics = () => itemResponse.Diagnostics.ToString(),
-                     };*/
-                }
-            }
-
-
-            
-                     //   await Test();
-            
 
             return new OperationResult()
             {
@@ -141,7 +85,8 @@ namespace CosmosBenchmark
         {
 
             // SQL
-            string partitionKey = tenantIds[0];
+            string partitionKey = currentTenantId;
+            Console.WriteLine(currentTenantId);
 
             using (FeedIterator setIterator = container.GetItemQueryStreamIterator(
                 $"SELECT * FROM c where c.tenantId = \"{partitionKey}\"",
@@ -174,7 +119,7 @@ namespace CosmosBenchmark
                             dynamic root = jsonSerializer.Deserialize<dynamic>(jtr);
                             dynamic items = root.Documents;
                             int total = root._count;
-                           // Console.WriteLine(total + " !!!!!!!!!!!!!!!!!!");
+                            Console.WriteLine(total + " !!!!!!!!!!!!!!!!!!");
                             for (int i = 0; i < total; i++)
                             {
                                 //Console.WriteLine(items[i]._self);
@@ -228,12 +173,18 @@ namespace CosmosBenchmark
             }
         }
 
+
+        string currentTenantId = "";
         public Task PrepareAsync()
         {
-            Random rnd = new Random();
-            string tenantId = tenantIds[rnd.Next(tenantCount)];
-            this.sampleJObject["id"] = Guid.NewGuid().ToString();
-            this.sampleJObject[this.partitionKeyPath] = tenantId;
+            int id = -1;
+            lock (LOCK)
+            {
+                id = COUNTER;
+                COUNTER++;
+            }
+
+            currentTenantId = "you-should-be-deleted-" + id.ToString();
 
             return Task.CompletedTask;
         }
